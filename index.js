@@ -12,7 +12,6 @@ app.use(cors());
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.urdzboc.mongodb.net/?appName=Cluster0`;
 
-// Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
@@ -28,12 +27,9 @@ async function run() {
     const db = client.db("book-porter-db");
     const bookCollection = db.collection("books");
 
-    // =====================================
-    // ✅ GET BOOKS (Home latest 6 / All books 20)
-    // Example:
-    //   /books?limit=6&status=published
-    //   /books?limit=20&status=published
-    // =====================================
+    // ✅ GET BOOKS (latest + limit)
+    // /books?limit=6&status=published
+    // /books?limit=20&status=published
     app.get("/books", async (req, res) => {
       try {
         const limit = parseInt(req.query.limit) || 0;
@@ -43,23 +39,26 @@ async function run() {
 
         const books = await bookCollection
           .find(query)
-          .sort({ createdAt: -1 }) // latest first
+          .sort({ createdAt: -1 })
           .limit(limit)
           .toArray();
 
         res.send(books);
       } catch (error) {
+        console.error("GET /books error:", error);
         res.status(500).send({ message: "Failed to get books" });
       }
     });
 
-    // =====================================
-    // ✅ GET SINGLE BOOK (Book Details page)
-    // Example: /books/64b....
-    // =====================================
+    // ✅ GET SINGLE BOOK (Book Details)
     app.get("/books/:id", async (req, res) => {
       try {
         const id = req.params.id;
+
+        // 🔥 prevent server crash
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).send({ message: "Invalid book id" });
+        }
 
         const book = await bookCollection.findOne({ _id: new ObjectId(id) });
 
@@ -69,14 +68,12 @@ async function run() {
 
         res.send(book);
       } catch (error) {
-        res.status(500).send({ message: "Failed to get book" });
+        console.error("GET /books/:id error:", error);
+        res.status(500).send({ message: "Server error" });
       }
     });
 
-    // =====================================
-    // ✅ POST BOOK (Add book)
-    // createdAt + default status add করা হলো
-    // =====================================
+    // ✅ POST BOOK (Add)
     app.post("/books", async (req, res) => {
       try {
         const book = req.body;
@@ -90,30 +87,36 @@ async function run() {
         const result = await bookCollection.insertOne(newBook);
         res.send(result);
       } catch (error) {
+        console.error("POST /books error:", error);
         res.status(500).send({ message: "Failed to add book" });
       }
     });
 
-    // =====================================
-    // ✅ DELETE BOOK (Admin)
-    // Example: DELETE /books/:id
-    // =====================================
+    // ✅ DELETE BOOK
     app.delete("/books/:id", async (req, res) => {
       try {
         const id = req.params.id;
 
-        const result = await bookCollection.deleteOne({ _id: new ObjectId(id) });
+        // 🔥 prevent server crash
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).send({ message: "Invalid book id" });
+        }
+
+        const result = await bookCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
+
         res.send(result);
       } catch (error) {
+        console.error("DELETE /books/:id error:", error);
         res.status(500).send({ message: "Failed to delete book" });
       }
     });
 
-    // Ping to confirm connection
     await client.db("admin").command({ ping: 1 });
     console.log("✅ Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
-    // await client.close(); // keep commented for production dev server
+    // await client.close();
   }
 }
 run().catch(console.dir);
