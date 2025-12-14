@@ -26,16 +26,26 @@ async function run() {
 
     const db = client.db("book-porter-db");
     const bookCollection = db.collection("books");
+    const orderCollection = db.collection("orders");
+
+    // =====================================
+    // ✅ BOOKS APIs
+    // =====================================
 
     // ✅ GET BOOKS (latest + limit)
     // /books?limit=6&status=published
     // /books?limit=20&status=published
+    // /books?status=all
     app.get("/books", async (req, res) => {
       try {
         const limit = parseInt(req.query.limit) || 0;
         const status = req.query.status || "published";
 
-        const query = { status };
+        // ✅ status field na thakleo published hishebe count korbe
+        const query =
+          status === "all"
+            ? {}
+            : { $or: [{ status }, { status: { $exists: false } }] };
 
         const books = await bookCollection
           .find(query)
@@ -55,7 +65,6 @@ async function run() {
       try {
         const id = req.params.id;
 
-        // 🔥 prevent server crash
         if (!ObjectId.isValid(id)) {
           return res.status(400).send({ message: "Invalid book id" });
         }
@@ -73,7 +82,7 @@ async function run() {
       }
     });
 
-    // ✅ POST BOOK (Add)
+    // ✅ POST BOOK (Add) -> return full saved book
     app.post("/books", async (req, res) => {
       try {
         const book = req.body;
@@ -85,7 +94,13 @@ async function run() {
         };
 
         const result = await bookCollection.insertOne(newBook);
-        res.send(result);
+
+        // ✅ return full saved book object (latest section + all books instant use)
+        const savedBook = await bookCollection.findOne({
+          _id: result.insertedId,
+        });
+
+        res.status(201).send(savedBook);
       } catch (error) {
         console.error("POST /books error:", error);
         res.status(500).send({ message: "Failed to add book" });
@@ -97,7 +112,6 @@ async function run() {
       try {
         const id = req.params.id;
 
-        // 🔥 prevent server crash
         if (!ObjectId.isValid(id)) {
           return res.status(400).send({ message: "Invalid book id" });
         }
@@ -113,6 +127,153 @@ async function run() {
       }
     });
 
+    // =====================================
+    // ✅ ORDERS APIs (User Order Now)
+    // =====================================
+
+    // ✅ CREATE ORDER -> return full saved order
+    // POST /orders
+    app.post("/orders", async (req, res) => {
+      try {
+        const order = req.body;
+
+        if (
+          !order?.bookId ||
+          !order?.userEmail ||
+          !order?.phone ||
+          !order?.address
+        ) {
+          return res.status(400).send({
+            message: "bookId, userEmail, phone, address are required",
+          });
+        }
+
+        if (!ObjectId.isValid(order.bookId)) {
+          return res.status(400).send({ message: "Invalid bookId" });
+        }
+
+        const book = await bookCollection.findOne({
+          _id: new ObjectId(order.bookId),
+        });
+        if (!book) return res.status(404).send({ message: "Book not found" });
+
+        const newOrder = {
+          bookId: new ObjectId(order.bookId),
+          bookTitle: book.title,
+          amount: Number(book.price) || 0,
+
+          userEmail: order.userEmail,
+          phone: order.phone,
+          address: order.address,
+
+          status: "pending",
+          paymentStatus: "unpaid",
+          createdAt: new Date(),
+        };
+
+        const result = await orderCollection.insertOne(newOrder);
+
+        // ✅ return full saved order object
+        const savedOrder = await orderCollection.findOne({
+          _id: result.insertedId,
+        });
+
+        res.status(201).send(savedOrder);
+      } catch (error) {
+        console.error("POST /orders error:", error);
+        res.status(500).send({ message: "Failed to create order" });
+      }
+    });
+
+    // ✅ GET MY ORDERS
+    // GET /orders?email=someone@email.com
+    app.get("/orders", async (req, res) => {
+      try {
+        const email = req.query.email;
+        if (!email)
+          return res.status(400).send({ message: "email query is required" });
+
+        const orders = await orderCollection
+          .find({ userEmail: email })
+          .sort({ createdAt: -1 })
+          .toArray();
+
+        res.send(orders);
+      } catch (error) {
+        console.error("GET /orders error:", error);
+        res.status(500).send({ message: "Failed to get orders" });
+      }
+    });
+
+    // ✅ CANCEL ORDER (only pending) -> return updated order
+    // PATCH /orders/:id/cancel
+    app.patch("/orders/:id/cancel", async (req, res) => {
+      try {
+        const id = req.params.id;
+        if (!ObjectId.isValid(id))
+          return res.status(400).send({ message: "Invalid order id" });
+
+        const order = await orderCollection.findOne({ _id: new ObjectId(id) });
+        if (!order) return res.status(404).send({ message: "Order not found" });
+
+        if (order.status !== "pending") {
+          return res
+            .status(400)
+            .send({ message: "Only pending orders can be cancelled" });
+        }
+
+        const updated = await orderCollection.findOneAndUpdate(
+          { _id: new ObjectId(id) },
+          { $set: { status: "cancelled" } },
+          { returnDocument: "after" }
+        );
+
+        res.send(updated.value);
+      } catch (error) {
+        console.error("PATCH /orders/:id/cancel error:", error);
+        res.status(500).send({ message: "Failed to cancel order" });
+      }
+    });
+
+    // ✅ PAY ORDER (demo) -> return updated order
+    // POST /orders/:id/pay
+    app.post("/orders/:id/pay", async (req, res) => {
+      try {
+        const id = req.params.id;
+        if (!ObjectId.isValid(id))
+          return res.status(400).send({ message: "Invalid order id" });
+
+        const paymentId = req.body?.paymentId || `PAY-${Date.now()}`;
+
+        const order = await orderCollection.findOne({ _id: new ObjectId(id) });
+        if (!order) return res.status(404).send({ message: "Order not found" });
+
+        if (order.status === "cancelled") {
+          return res
+            .status(400)
+            .send({ message: "Cancelled order cannot be paid" });
+        }
+
+        const updated = await orderCollection.findOneAndUpdate(
+          { _id: new ObjectId(id) },
+          {
+            $set: {
+              paymentStatus: "paid",
+              paymentId,
+              paymentDate: new Date(),
+            },
+          },
+          { returnDocument: "after" }
+        );
+
+        res.send(updated.value);
+      } catch (error) {
+        console.error("POST /orders/:id/pay error:", error);
+        res.status(500).send({ message: "Failed to pay order" });
+      }
+    });
+
+    // Ping to confirm connection
     await client.db("admin").command({ ping: 1 });
     console.log("✅ Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
