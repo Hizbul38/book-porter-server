@@ -7,11 +7,15 @@ const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const app = express();
 const port = process.env.PORT || 3000;
 
-// middleware
+// ===============================
+// MIDDLEWARE
+// ===============================
 app.use(cors());
 app.use(express.json());
 
-// MongoDB URI
+// ===============================
+// MONGODB CONNECTION
+// ===============================
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.urdzboc.mongodb.net/?appName=Cluster0`;
 
 const client = new MongoClient(uri, {
@@ -38,136 +42,187 @@ async function run() {
     // BOOK APIs
     // ===============================
     app.get("/books", async (req, res) => {
-      try {
-        const limit = parseInt(req.query.limit) || 0;
-        const status = req.query.status || "published";
-        const query = status === "all" ? {} : { $or: [{ status }, { status: { $exists: false } }] };
-        const books = await bookCollection.find(query).sort({ createdAt: -1 }).limit(limit).toArray();
-        res.send(books);
-      } catch (err) {
-        res.status(500).send({ error: err.message });
-      }
+      const limit = parseInt(req.query.limit) || 0;
+
+      const books = await bookCollection
+        .find({})
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .toArray();
+
+      res.send(books);
     });
 
     app.get("/books/:id", async (req, res) => {
-      try {
-        const id = req.params.id;
-        if (!ObjectId.isValid(id)) return res.status(400).send({ message: "Invalid book id" });
-        const book = await bookCollection.findOne({ _id: new ObjectId(id) });
-        if (!book) return res.status(404).send({ message: "Book not found" });
-        res.send(book);
-      } catch (err) {
-        res.status(500).send({ error: err.message });
-      }
+      const id = req.params.id;
+      if (!ObjectId.isValid(id))
+        return res.status(400).send({ message: "Invalid book id" });
+
+      const book = await bookCollection.findOne({ _id: new ObjectId(id) });
+      if (!book) return res.status(404).send({ message: "Book not found" });
+
+      res.send(book);
     });
 
     app.post("/books", async (req, res) => {
-      try {
-        const book = req.body;
-        const newBook = { ...book, price: Number(book.price) || 0, status: book.status || "published", createdAt: new Date() };
-        const result = await bookCollection.insertOne(newBook);
-        res.send(result);
-      } catch (err) {
-        res.status(500).send({ error: err.message });
-      }
+      const book = req.body;
+
+      const newBook = {
+        ...book,
+        price: Number(book.price) || 0,
+        status: book.status || "published",
+        createdAt: new Date(),
+      };
+
+      const result = await bookCollection.insertOne(newBook);
+      res.send(result);
     });
 
     app.patch("/books/:id", async (req, res) => {
-      try {
-        const id = req.params.id;
-        const updated = await bookCollection.findOneAndUpdate(
-          { _id: new ObjectId(id) },
-          { $set: { ...req.body, updatedAt: new Date() } },
-          { returnDocument: "after" }
-        );
-        res.send(updated.value);
-      } catch (err) {
-        res.status(500).send({ error: err.message });
-      }
+      const id = req.params.id;
+
+      const updated = await bookCollection.findOneAndUpdate(
+        { _id: new ObjectId(id) },
+        { $set: { ...req.body, updatedAt: new Date() } },
+        { returnDocument: "after" }
+      );
+
+      res.send(updated.value);
     });
 
     app.delete("/books/:id", async (req, res) => {
-      try {
-        const id = req.params.id;
-        const result = await bookCollection.deleteOne({ _id: new ObjectId(id) });
-        res.send(result);
-      } catch (err) {
-        res.status(500).send({ error: err.message });
-      }
+      const id = req.params.id;
+      const result = await bookCollection.deleteOne({
+        _id: new ObjectId(id),
+      });
+      res.send(result);
     });
 
     // ===============================
     // ORDER APIs
     // ===============================
     app.post("/orders", async (req, res) => {
-      try {
-        const { bookId, userEmail, phone, address } = req.body;
-        const book = await bookCollection.findOne({ _id: new ObjectId(bookId) });
-        if (!book) return res.status(404).send({ message: "Book not found" });
+      const { bookId, userEmail, phone, address } = req.body;
 
-        const order = {
-          bookId: new ObjectId(bookId),
-          bookTitle: book.title,
-          amount: book.price,
-          librarianEmail: book.librarianEmail,
-          userEmail,
-          phone,
-          address,
-          status: "pending",
-          paymentStatus: "unpaid",
-          createdAt: new Date(),
-        };
+      const book = await bookCollection.findOne({
+        _id: new ObjectId(bookId),
+      });
 
-        const result = await orderCollection.insertOne(order);
-        res.send(result);
-      } catch (err) {
-        res.status(500).send({ error: err.message });
-      }
+      if (!book) return res.status(404).send({ message: "Book not found" });
+
+      const order = {
+        bookId: new ObjectId(bookId),
+        bookTitle: book.title,
+        amount: book.price,
+        librarianEmail: book.librarianEmail,
+        userEmail,
+        phone,
+        address,
+        status: "pending",
+        paymentStatus: "unpaid",
+        createdAt: new Date(),
+      };
+
+      const result = await orderCollection.insertOne(order);
+      res.send(result);
     });
 
     app.get("/orders", async (req, res) => {
-      try {
-        const email = req.query.email;
-        const orders = await orderCollection.find({ userEmail: email }).sort({ createdAt: -1 }).toArray();
-        res.send(orders);
-      } catch (err) {
-        res.status(500).send({ error: err.message });
-      }
+      const email = req.query.email;
+
+      const orders = await orderCollection
+        .find({ userEmail: email })
+        .sort({ createdAt: -1 })
+        .toArray();
+
+      res.send(orders);
     });
 
     app.get("/orders/:id", async (req, res) => {
+      const order = await orderCollection.findOne({
+        _id: new ObjectId(req.params.id),
+      });
+      res.send(order);
+    });
+
+    // ===============================
+    // STRIPE CHECKOUT SESSION
+    // ===============================
+    app.post("/create-checkout-session", async (req, res) => {
       try {
-        const order = await orderCollection.findOne({ _id: new ObjectId(req.params.id) });
-        res.send(order);
+        const { orderId } = req.body;
+
+        const order = await orderCollection.findOne({
+          _id: new ObjectId(orderId),
+        });
+
+        if (!order) {
+          return res.status(404).send({ message: "Order not found" });
+        }
+
+        const session = await stripe.checkout.sessions.create({
+          payment_method_types: ["card"],
+          mode: "payment",
+          line_items: [
+            {
+              price_data: {
+                currency: "usd",
+                product_data: {
+                  name: order.bookTitle,
+                },
+                unit_amount: Math.round(order.amount * 100),
+              },
+              quantity: 1,
+            },
+          ],
+          success_url: `${process.env.CLIENT_URL}/dashboard/payment-success?orderId=${orderId}&session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url: `${process.env.CLIENT_URL}/dashboard/payment-cancel`,
+        });
+
+        res.send({ url: session.url });
       } catch (err) {
         res.status(500).send({ error: err.message });
       }
     });
 
     // ===============================
-    // STRIPE PAYMENT APIs
+    // PAYMENT SAVE (FIXED FOR INVOICES)
     // ===============================
-    app.post("/create-payment-intent", async (req, res) => {
-      try {
-        const { price } = req.body;
-        const amount = Math.round(price * 100); // convert to cents
-        const paymentIntent = await stripe.paymentIntents.create({ amount, currency: "usd", payment_method_types: ["card"] });
-        res.send({ clientSecret: paymentIntent.client_secret });
-      } catch (err) {
-        res.status(500).send({ error: err.message });
-      }
-    });
-
     app.post("/payments", async (req, res) => {
       try {
-        const { orderId, email, amount, transactionId } = req.body;
+        const { orderId, transactionId } = req.body;
 
-        const payment = { orderId: new ObjectId(orderId), userEmail: email, amount, transactionId, createdAt: new Date() };
+        const order = await orderCollection.findOne({
+          _id: new ObjectId(orderId),
+        });
+
+        if (!order) {
+          return res.status(404).send({ message: "Order not found" });
+        }
+
+        const payment = {
+          orderId: new ObjectId(orderId),
+          userEmail: order.userEmail,
+          amount: order.amount,
+
+          // ✅ FRONTEND MATCH
+          paymentId: transactionId,
+          paymentDate: new Date(),
+          bookTitle: order.bookTitle,
+
+          createdAt: new Date(),
+        };
+
         await paymentCollection.insertOne(payment);
 
         await orderCollection.updateOne(
           { _id: new ObjectId(orderId) },
-          { $set: { paymentStatus: "paid", paymentId: transactionId, paymentDate: new Date() } }
+          {
+            $set: {
+              paymentStatus: "paid",
+              paymentDate: new Date(),
+            },
+          }
         );
 
         res.send({ success: true });
@@ -180,40 +235,49 @@ async function run() {
     // INVOICES
     // ===============================
     app.get("/invoices", async (req, res) => {
-      try {
-        const email = req.query.email;
-        const invoices = await paymentCollection.find({ userEmail: email }).sort({ createdAt: -1 }).toArray();
-        res.send(invoices);
-      } catch (err) {
-        res.status(500).send({ error: err.message });
-      }
+      const email = req.query.email;
+
+      const invoices = await paymentCollection
+        .find({ userEmail: email })
+        .sort({ paymentDate: -1 })
+        .toArray();
+
+      res.send(invoices);
     });
 
     // ===============================
     // USERS
     // ===============================
     app.get("/users", async (req, res) => {
-      try {
-        const email = req.query.email;
-        let user = await userCollection.findOne({ email });
-        if (!user) {
-          const newUser = { email, name: "Demo User", createdAt: new Date() };
-          await userCollection.insertOne(newUser);
-          user = newUser;
-        }
-        res.send(user);
-      } catch (err) {
-        res.status(500).send({ error: err.message });
+      const email = req.query.email;
+
+      let user = await userCollection.findOne({ email });
+
+      if (!user) {
+        user = {
+          email,
+          name: "Demo User",
+          createdAt: new Date(),
+        };
+        await userCollection.insertOne(user);
       }
+
+      res.send(user);
     });
   } finally {
-    // Optional: do not close MongoDB connection here
+    // keep connection alive
   }
 }
 
 run().catch(console.dir);
 
-// Root endpoint
-app.get("/", (req, res) => res.send("🚀 BookCourier Server Running"));
+// ===============================
+// ROOT
+// ===============================
+app.get("/", (req, res) => {
+  res.send("🚀 BookCourier Server Running");
+});
 
-app.listen(port, () => console.log(`🚀 Server running on port ${port}`));
+app.listen(port, () => {
+  console.log(`🚀 Server running on port ${port}`);
+});
