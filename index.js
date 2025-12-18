@@ -5,18 +5,14 @@ const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const Stripe = require("stripe");
 
 const app = express();
-const port = process.env.PORT || 3000;
 
 // ===============================
 // MIDDLEWARE
 // ===============================
 app.use(cors());
 
-// ⚠️ webhook এর জন্য raw body লাগবে
-app.use(
-  "/stripe-webhook",
-  express.raw({ type: "application/json" })
-);
+// ⚠️ Stripe webhook এর জন্য raw body আগে লাগবে
+app.use("/stripe-webhook", express.raw({ type: "application/json" }));
 app.use(express.json());
 
 // ===============================
@@ -48,9 +44,9 @@ async function run() {
 
   console.log("✅ MongoDB connected");
 
-  // =====================================================
+  // ===============================
   // USERS
-  // =====================================================
+  // ===============================
   app.post("/users", async (req, res) => {
     const { email } = req.body;
     if (!email) return res.status(400).send({ message: "Email required" });
@@ -75,9 +71,9 @@ async function run() {
     res.send(user);
   });
 
-  // =====================================================
+  // ===============================
   // BOOKS
-  // =====================================================
+  // ===============================
   app.get("/books", async (req, res) => {
     const { email, status } = req.query;
     const query = {};
@@ -123,9 +119,9 @@ async function run() {
     res.send({ _id: result.insertedId, ...newBook });
   });
 
-  // =====================================================
+  // ===============================
   // ORDERS
-  // =====================================================
+  // ===============================
   app.post("/orders", async (req, res) => {
     const { bookId, userEmail, phone, address } = req.body;
 
@@ -156,7 +152,6 @@ async function run() {
 
   app.get("/orders", async (req, res) => {
     const { email } = req.query;
-
     const orders = await orderCollection
       .find({ userEmail: email })
       .sort({ createdAt: -1 })
@@ -165,9 +160,9 @@ async function run() {
     res.send(orders);
   });
 
-  // =====================================================
+  // ===============================
   // STRIPE CHECKOUT
-  // =====================================================
+  // ===============================
   app.post("/create-checkout-session", async (req, res) => {
     const { orderId } = req.body;
 
@@ -193,18 +188,18 @@ async function run() {
         },
       ],
       metadata: {
-        orderId: order._id.toString(), // 🔥 VERY IMPORTANT
+        orderId: order._id.toString(),
       },
-      success_url: `http://localhost:5173/dashboard/payment-success`,
-      cancel_url: `http://localhost:5173/dashboard/payment-cancel`,
+      success_url: `${process.env.CLIENT_URL}/dashboard/payment-success`,
+      cancel_url: `${process.env.CLIENT_URL}/dashboard/payment-cancel`,
     });
 
     res.send({ url: session.url });
   });
 
-  // =====================================================
-  // STRIPE WEBHOOK (🔥 REAL PAYMENT CONFIRM)
-  // =====================================================
+  // ===============================
+  // STRIPE WEBHOOK
+  // ===============================
   app.post("/stripe-webhook", async (req, res) => {
     const sig = req.headers["stripe-signature"];
 
@@ -255,9 +250,9 @@ async function run() {
     res.json({ received: true });
   });
 
-  // =====================================================
+  // ===============================
   // INVOICES
-  // =====================================================
+  // ===============================
   app.get("/invoices", async (req, res) => {
     const { email } = req.query;
     if (!email) return res.status(400).send({ message: "Email required" });
@@ -277,9 +272,8 @@ run().catch(console.dir);
 // ROOT
 // ===============================
 app.get("/", (req, res) => {
-  res.send("🚀 BookCourier Server Running");
+  res.send("🚀 BookCourier Server Running (Vercel Ready)");
 });
 
-app.listen(port, () => {
-  console.log(`🚀 Server running on port ${port}`);
-});
+// ❌ app.listen নাই
+module.exports = app;
